@@ -2,6 +2,30 @@ import os
 import numpy as np
 import json
 from PIL import Image
+import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
+
+def read_prototype_10():
+    ''' 
+    Read in an example of a red light, selected from image 10.
+    '''
+    data_path = 'RedLights2011_Medium'
+    I = Image.open(os.path.join(data_path,"RL-010.jpg"))
+    I = np.asarray(I)
+    proto_red = I[25:91,320:349]
+    # proto_red = I[:,:,0][25:91,320:349] # only using red channel
+    return proto_red
+
+def smooth(y, box_pts):
+    '''
+    Smooth a given set of datapoints.
+    '''
+    box = np.ones(box_pts)/box_pts
+    y_smooth = np.convolve(y, box, mode='same')
+    return y_smooth
+
+def normalize(a):
+    return a.flatten()/np.linalg.norm(a.flatten())
 
 def detect_red_light(I):
     '''
@@ -17,37 +41,24 @@ def detect_red_light(I):
     I[:,:,1] is the green channel
     I[:,:,2] is the blue channel
     '''
-    
-    
+
     bounding_boxes = [] # This should be a list of lists, each of length 4. See format example below. 
     
-    '''
-    BEGIN YOUR CODE
-    '''
+    example = read_prototype_10()
+
+    windows = np.lib.stride_tricks.sliding_window_view(I, example.shape)
+    # windows = np.lib.stride_tricks.sliding_window_view(I[:,:,0], example.shape) # only using red channel
+    lst = []
+    for col_ind, axis1 in enumerate(windows):
+        for row_ind, window in enumerate(axis1):
+            lst.append((np.inner(normalize(window).flatten(), normalize(example).flatten()), 
+                [row_ind, col_ind, row_ind + example.shape[1], col_ind + example.shape[0]]))
     
-    '''
-    As an example, here's code that generates between 1 and 5 random boxes
-    of fixed size and returns the results in the proper format.
-    '''
-    
-    box_height = 8
-    box_width = 6
-    
-    num_boxes = np.random.randint(1,5) 
-    
-    for i in range(num_boxes):
-        (n_rows,n_cols,n_channels) = np.shape(I)
-        
-        tl_row = np.random.randint(n_rows - box_height)
-        tl_col = np.random.randint(n_cols - box_width)
-        br_row = tl_row + box_height
-        br_col = tl_col + box_width
-        
-        bounding_boxes.append([tl_row,tl_col,br_row,br_col]) 
-    
-    '''
-    END YOUR CODE
-    '''
+    convs = [x[0] for x in lst] # get all convolutions
+    smoothed = smooth(convs, 8) # smooth convolutions
+    peaks = find_peaks(smoothed, height=0.88)[0] # find peaks above threshold 0.88
+    for idx in peaks:
+        bounding_boxes.append(lst[idx][1])
     
     for i in range(len(bounding_boxes)):
         assert len(bounding_boxes[i]) == 4
@@ -68,14 +79,13 @@ file_names = sorted(os.listdir(data_path))
 file_names = [f for f in file_names if '.jpg' in f] 
 
 preds = {}
+
 for i in range(len(file_names)):
-    
     # read image using PIL:
     I = Image.open(os.path.join(data_path,file_names[i]))
-    
     # convert to numpy array:
     I = np.asarray(I)
-    
+
     preds[file_names[i]] = detect_red_light(I)
 
 # save preds (overwrites any previous predictions!)
